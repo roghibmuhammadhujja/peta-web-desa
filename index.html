@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"/>
+  <title>Peta Desa (PMTiles + GitHub)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/>
+  <style>
+    html,body,#map{height:100%;margin:0}
+    .panel{position:absolute;top:12px;left:12px;z-index:10;background:rgba(255,255,255,.92);
+      border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.15);padding:10px 12px;font:14px system-ui}
+    .row{display:flex;gap:8px;align-items:center;margin:6px 0}
+    .coord{position:absolute;right:12px;bottom:12px;z-index:10;background:rgba(0,0,0,.65);
+      color:#fff;padding:6px 10px;border-radius:8px;font:12px ui-monospace,monospace}
+    .btn{border:1px solid #ddd;background:#fff;padding:6px 10px;border-radius:8px;cursor:pointer}
+    .btn:hover{background:#f2f2f2}
+  </style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="panel">
+  <div class="row">
+    <label><input type="checkbox" id="toggleBase" checked> Basemap OSM</label>
+  </div>
+  <div class="row">
+    <label for="opacity">Transparansi ortho</label>
+    <input type="range" id="opacity" min="0" max="100" value="100"/>
+    <span id="opacityVal">100%</span>
+  </div>
+  <div class="row">
+    <button id="fitBtn" class="btn">Fit ke data</button>
+    <button id="copyBtn" class="btn">Copy URL data</button>
+  </div>
+</div>
+
+<div id="coord" class="coord">lng: 0.00000, lat: 0.00000, z: 2</div>
+
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.0.6/dist/pmtiles.js"></script>
+<script>
+  // ====== GANTI BARIS INI DENGAN URL RELEASES ANDA ======
+  const PMTILES_HTTP = "https://github.com/roghibmuhammadhujja/peta-web-desa/releases/download/v1/wilayah.pmtiles";
+  // contoh: const PMTILES_HTTP = "https://github.com/andi/peta-desa/releases/download/v1/wilayah.pmtiles";
+  // ================================================
+
+  const PMTILES_URL = "pmtiles://" + PMTILES_HTTP;
+
+  // Daftarkan protokol pmtiles
+  const protocol = new pmtiles.Protocol();
+  maplibregl.addProtocol("pmtiles", protocol.tile);
+
+  // Instance PMTiles untuk baca header bounds
+  const pmt = new pmtiles.PMTiles(PMTILES_HTTP);
+  protocol.add(pmt);
+
+  const style = {
+    version: 8,
+    sources: {
+      osm: {
+        type: "raster",
+        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: "© OpenStreetMap"
+      },
+      ortho: {
+        type: "raster",
+        url: PMTILES_URL,
+        tileSize: 256
+      }
+    },
+    layers: [
+      { id:"osm", type:"raster", source:"osm" },
+      { id:"ortho", type:"raster", source:"ortho" }
+    ]
+  };
+
+  const map = new maplibregl.Map({
+    container: "map",
+    style,
+    center: [0,0],
+    zoom: 2
+  });
+
+  // Kontrol & UI kecil
+  map.addControl(new maplibregl.NavigationControl(), "top-right");
+  map.addControl(new maplibregl.ScaleControl({maxWidth:120, unit:"metric"}));
+  map.on("mousemove", e=>{
+    document.getElementById("coord").textContent =
+      `lng: ${e.lngLat.lng.toFixed(5)}, lat: ${e.lngLat.lat.toFixed(5)}, z: ${map.getZoom().toFixed(2)}`;
+  });
+  const opacityInput = document.getElementById("opacity");
+  const opacityVal = document.getElementById("opacityVal");
+  const applyOpacity = ()=>{
+    const v = Number(opacityInput.value)/100;
+    opacityVal.textContent = `${opacityInput.value}%`;
+    map.setPaintProperty("ortho","raster-opacity", v);
+  };
+  opacityInput.addEventListener("input", applyOpacity);
+  map.on("load", applyOpacity);
+
+  document.getElementById("toggleBase").addEventListener("change", (e)=>{
+    map.setLayoutProperty("osm","visibility", e.target.checked ? "visible":"none");
+  });
+  document.getElementById("fitBtn").addEventListener("click", async ()=>{
+    try{
+      const h = await pmt.getHeader();
+      if (h && Number.isFinite(h.minLon)) {
+        map.fitBounds([[h.minLon,h.minLat],[h.maxLon,h.maxLat]], {padding:24});
+      }
+    } catch(e){ console.error(e); }
+  });
+  document.getElementById("copyBtn").addEventListener("click", async ()=>{
+    try{
+      await navigator.clipboard.writeText(PMTILES_HTTP);
+      const btn = document.getElementById("copyBtn");
+      const old = btn.textContent; btn.textContent="Tersalin!"; setTimeout(()=>btn.textContent=old,1200);
+    }catch{ alert(PMTILES_HTTP); }
+  });
+
+  map.on("error", e => console.error("Map error:", e && (e.error||e)));
+</script>
+</body>
+</html>
